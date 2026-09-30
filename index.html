@@ -157,7 +157,6 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .low-intro{text-align:center;padding:28px 0 8px}
 .low-intro p{font-family:var(--serif);font-size:17px;font-weight:300;color:var(--ink-m);font-style:italic;letter-spacing:.02em}
 .low-save-btn{background:var(--accent) !important;letter-spacing:.06em !important}
-#low-energy-form .sec:last-of-type{margin-bottom:10px}
 
 .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;display:none;align-items:flex-end;justify-content:center}
 .overlay.open{display:flex}
@@ -173,6 +172,12 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 .cbtn:active{opacity:.7}
 .skipbtn{width:100%;padding:12px;background:none;border:.5px solid var(--bdm);border-radius:var(--r);font-family:var(--mono);font-size:12px;letter-spacing:.06em;cursor:pointer;color:var(--ink-m);text-transform:uppercase;margin-top:8px;transition:all .15s}
 .skipbtn:hover{background:var(--pw)}
+
+.opt{margin-bottom:18px}.opt summary{cursor:pointer;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-m);padding:12px 0;list-style:none}
+.opt summary::before{content:"+ "}.opt[open] summary::before{content:"− "}.opt>.sec:first-of-type{margin-top:6px}
+.rule{background:var(--abg);border-color:var(--accent)}.rule div:last-child{font-family:var(--serif);font-size:16px;font-weight:300;margin-top:4px}
+.trk{font-size:11px;color:var(--ink-m);margin-bottom:10px;cursor:pointer}.sub{font-size:11px;color:var(--ink-m);line-height:1.6;margin-bottom:10px}
+.pdots{display:flex;gap:4px;justify-content:center;margin-top:6px}.pd{width:8px;height:8px;border-radius:50%;background:var(--pw);border:.5px solid var(--bdm)}.pd.on{background:var(--accent);border-color:var(--accent)}
 </style>
 </head>
 <body>
@@ -181,73 +186,99 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:20px;heigh
 <div class="overlay" id="overlay">
 <div class="sheet">
   <h2>Connect your Google Sheet</h2>
-  <p>Takes about 5 minutes. After this, every entry you log syncs to one Sheet — accessible from any device.</p>
+  <p>Takes about 5 minutes. After this, every entry and weekly plan you log syncs to one Sheet — accessible from any device.</p>
 
   <div class="step-head">① Create a Google Sheet</div>
   <p><a href="https://sheets.new" target="_blank">Open sheets.new ↗</a> and leave it blank. Note the Sheet ID from the URL:<br>
   <code style="font-size:11px;background:var(--pw);padding:2px 6px;border-radius:4px;">docs.google.com/spreadsheets/d/<strong>THIS_PART</strong>/edit</code></p>
 
   <div class="step-head">② Add the Apps Script</div>
-  <p>In your Sheet, go to <strong>Extensions → Apps Script</strong>. Delete any existing code, paste the script below, then click <strong>Save</strong>.</p>
-  <div class="code-block">function doPost(e) {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var sheet = ss.getActiveSheet();
-  var data = JSON.parse(e.postData.contents);
-  var HEADERS = ['date','entry_mode','sleep_time','wake_time','sleep_hours',
-    'mood','habits','social','work_hours','steps',
-    'food_breakfast','food_lunch','food_dinner','food_snacks',
-    'content_types','screen_hours','activities','note','saved_at'];
+  <p><strong>Already set up?</strong> Paste this new script over the old one, then <strong>Deploy → Manage deployments → ✏️ → New version → Deploy</strong>. Your URL stays the same.<br><br>In your Sheet, go to <strong>Extensions → Apps Script</strong>. Delete any existing code, paste the script below, then click <strong>Save</strong>.</p>
+  <div class="code-block">var KEYS = ['date','entry_mode','sleep_time','wake_time','sleep_hours',
+  'mood','habits','social','work_hours','steps',
+  'food_breakfast','food_lunch','food_dinner','food_snacks',
+  'content_types','screen_hours','activities','note','saved_at',
+  'career_min','career_topic','no_feed_before','body_move',
+  'body_food','life_thing','parked'];
+var WK = ['week','outcome','move_target','enjoy','must_do','saved_at'];
 
-  if (data.action === 'init') {
-    if (sheet.getLastRow() === 0)
-      sheet.appendRow(HEADERS);
-    return out({ok:true});
-  }
-  if (data.action === 'append') {
-    sheet.appendRow(rowArr(data.row, HEADERS));
-    return out({ok:true});
-  }
-  if (data.action === 'update') {
-    var vals = sheet.getDataRange().getValues();
-    for (var i=1;i&lt;vals.length;i++) {
-      if (String(vals[i][0])===String(data.date)) {
-        sheet.getRange(i+1,1,1,HEADERS.length)
-          .setValues([rowArr(data.row,HEADERS)]);
-        return out({ok:true,updated:true});
+function main() { return SpreadsheetApp.getActiveSpreadsheet().getSheets()[0]; }
+function weekly() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var w = ss.getSheetByName('weekly');
+  if (!w) { w = ss.insertSheet('weekly'); w.appendRow(WK); }
+  return w;
+}
+function prep(s) {
+  if (s.getLastRow() === 0) s.appendRow(KEYS);
+  else if (KEYS.length &gt; s.getLastColumn())
+    s.getRange(1,1,1,KEYS.length).setValues([KEYS]);
+}
+function fmt(v, f) {
+  if (v instanceof Date)
+    return Utilities.formatDate(v, Session.getScriptTimeZone(), f);
+  return String(v);
+}
+function arr(r, h) { return h.map(function(k){ return r[k] || ''; }); }
+function out(o) {
+  return ContentService.createTextOutput(JSON.stringify(o))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function doPost(e) {
+  var d = JSON.parse(e.postData.contents);
+  var s = main(); prep(s);
+  var vals, i;
+  if (d.action === 'init') return out({ok:true});
+  if (d.action === 'weekly_save') {
+    var w = weekly(); vals = w.getDataRange().getValues();
+    for (i = 1; vals.length &gt; i; i++) {
+      if (fmt(vals[i][0],'yyyy-MM-dd') === d.week) {
+        w.getRange(i+1,1,1,WK.length).setValues([arr(d.row,WK)]);
+        return out({ok:true});
       }
     }
-    sheet.appendRow(rowArr(data.row,HEADERS));
-    return out({ok:true,updated:false});
+    w.appendRow(arr(d.row,WK));
+    return out({ok:true});
   }
-  if (data.action === 'delete') {
-    var vals = sheet.getDataRange().getValues();
-    for (var i=1;i&lt;vals.length;i++) {
-      if (String(vals[i][0])===String(data.date)) {
-        sheet.deleteRow(i+1);
-        return out({ok:true});
+  vals = s.getDataRange().getValues();
+  if (d.action === 'delete') {
+    for (i = 1; vals.length &gt; i; i++) {
+      if (fmt(vals[i][0],'yyyy-MM-dd') === d.date) {
+        s.deleteRow(i+1); return out({ok:true});
       }
     }
     return out({ok:false});
   }
+  // append or update: update the day if it exists
+  for (i = 1; vals.length &gt; i; i++) {
+    if (fmt(vals[i][0],'yyyy-MM-dd') === d.date) {
+      s.getRange(i+1,1,1,KEYS.length).setValues([arr(d.row,KEYS)]);
+      return out({ok:true,updated:true});
+    }
+  }
+  s.appendRow(arr(d.row,KEYS));
+  return out({ok:true,updated:false});
 }
-function doGet() {
-  var sheet = SpreadsheetApp.getActiveSpreadsheet()
-    .getActiveSheet();
-  var rows = sheet.getDataRange().getValues();
-  if (rows.length &lt;= 1) return out({entries:[]});
+
+function readSheet(sh, dateKey) {
+  var rows = sh.getDataRange().getValues();
+  if (2 &gt; rows.length) return [];
   var h = rows[0];
-  var entries = rows.slice(1).map(function(r){
-    var o={};
-    h.forEach(function(k,i){o[k]=r[i];});
+  return rows.slice(1).map(function(r) {
+    var o = {};
+    h.forEach(function(k,i){
+      var v = r[i];
+      if (k === dateKey) o[k] = fmt(v,'yyyy-MM-dd');
+      else if (k === 'sleep_time' || k === 'wake_time') o[k] = fmt(v,'HH:mm');
+      else o[k] = v;
+    });
     return o;
   });
-  return out({entries:entries});
 }
-function rowArr(r,h){return h.map(function(k){return r[k]||''});}
-function out(obj){
-  return ContentService
-    .createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
+function doGet() {
+  return out({ entries: readSheet(main(),'date'),
+               weeks: readSheet(weekly(),'week') });
 }</div>
 
   <div class="step-head">③ Deploy as Web App</div>
@@ -280,6 +311,7 @@ function out(obj){
 
   <nav class="nav">
     <button class="nb active" onclick="go('log',this)">Log Today</button>
+    <button class="nb" id="nb-week" onclick="go('week',this)">Week</button>
     <button class="nb" onclick="go('history',this)">History</button>
     <button class="nb" onclick="go('stats',this)">Stats</button>
     <button class="nb" onclick="go('export',this)">Export</button>
@@ -288,63 +320,49 @@ function out(obj){
   <!-- LOG -->
   <div class="page active" id="page-log">
 
-    <!-- Mode toggle -->
-    <div class="mode-toggle-wrap">
-      <div class="mode-toggle" id="mode-toggle">
-        <button class="mt-btn active" id="mt-full" onclick="setMode('full')">
-          <span class="mt-icon">☀️</span>
-          <span class="mt-label">Full entry</span>
-          <span class="mt-sub">good day</span>
-        </button>
-        <button class="mt-btn" id="mt-low" onclick="setMode('low')">
-          <span class="mt-icon">🌙</span>
-          <span class="mt-label">Low energy</span>
-          <span class="mt-sub">just show up</span>
-        </button>
-      </div>
-    </div>
+    <div id="wk-banner" class="card" style="display:none;cursor:pointer" onclick="go('week',$('nb-week'))">📋 No plan for this week yet. Take 30 min to plan →</div>
+    <div class="card rule"><div class="sl2">Today's rule</div><div>3 things. Everything else is optional.</div></div>
 
-    <!-- LOW ENERGY MODE -->
-    <div id="low-energy-form" style="display:none">
-      <div class="low-intro">
-        <p>That's okay. Just three things.</p>
-      </div>
+    <div class="sec"><div class="sl">💼 Career · 90 min focused</div>
+      <div class="card">
+        <div class="trk" id="trk" onclick="editTrack()"></div>
+        <div class="stepper"><button class="stbtn" onclick="stepC(-15)">−</button><input class="stval" id="cmin" value="0 min" readonly><button class="stbtn" onclick="stepC(15)">+</button></div>
+        <div class="btr" style="margin:10px 0"><div class="bf" id="cbar" style="width:0"></div></div>
+        <input type="text" id="ctopic" placeholder="One topic only. What did you work on?">
+        <div class="cr" style="margin-top:10px"><button class="chip" id="nofeed" onclick="tog(this)">🚫 No feed before the block</button></div>
+      </div></div>
 
-      <div class="sec">
-        <div class="sl">How do you feel right now?</div>
-        <div class="card">
-          <div class="mr">
-            <button class="mb" data-v="1" onclick="selMood(this)">😞<span>rough</span></button>
-            <button class="mb" data-v="2" onclick="selMood(this)">😐<span>meh</span></button>
-            <button class="mb" data-v="3" onclick="selMood(this)">🙂<span>okay</span></button>
-            <button class="mb" data-v="4" onclick="selMood(this)">😊<span>good</span></button>
-            <button class="mb" data-v="5" onclick="selMood(this)">✨<span>great</span></button>
-          </div>
-        </div>
-      </div>
+    <div class="sec"><div class="sl">🏃‍♀️ Body · move + decent food</div>
+      <div class="card"><div class="cr" id="move-row">
+        <button class="chip" data-v="gym" onclick="selOne(this)">🏋️ Gym</button>
+        <button class="chip" data-v="walk" onclick="selOne(this)">🚶 Walk</button>
+        <button class="chip" id="food-ok" onclick="tog(this)">🥗 Decent food</button></div></div></div>
 
-      <div class="sec">
-        <div class="sl">Sleep</div>
-        <div class="card">
-          <div class="tr">
-            <div class="tb"><label>Slept at</label><input type="time" id="sleep-time" value="23:00"></div>
-            <div class="tb"><label>Woke up</label><input type="time" id="wake-time" value="07:00"></div>
-          </div>
-        </div>
-      </div>
+    <div class="sec"><div class="sl">🌱 Life · one thing just because you enjoy it</div>
+      <div class="card"><div class="cr" id="life-row">
+        <button class="chip" data-v="reading" onclick="tog(this)">📖 Reading</button>
+        <button class="chip" data-v="painting" onclick="tog(this)">🎨 Painting</button>
+        <button class="chip" data-v="crochet" onclick="tog(this)">🧶 Crochet</button>
+        <button class="chip" data-v="exploring Delhi" onclick="tog(this)">🗺 Exploring Delhi</button>
+        <button class="chip" data-v="a movie" onclick="tog(this)">🎬 A movie</button>
+        <button class="chip" data-v="talking to someone" onclick="tog(this)">💬 Talking to someone</button>
+        <button class="chip" data-v="doing nothing" onclick="tog(this)">😌 Doing nothing</button></div>
+        <input type="text" id="life-other" placeholder="Something else…" style="margin-top:10px"></div></div>
 
-      <div class="sec">
-        <div class="sl">What happened today?</div>
-        <div class="card">
-          <textarea id="note" placeholder="Anything. Even one word is enough." rows="4"></textarea>
-        </div>
-      </div>
+    <div class="sec"><div class="sl">How was today</div><div class="card"><div class="mr">
+      <button class="mb" data-v="1" onclick="selMood(this)">😞<span>rough</span></button>
+      <button class="mb" data-v="2" onclick="selMood(this)">😐<span>meh</span></button>
+      <button class="mb" data-v="3" onclick="selMood(this)">🙂<span>okay</span></button>
+      <button class="mb" data-v="4" onclick="selMood(this)">😊<span>good</span></button>
+      <button class="mb" data-v="5" onclick="selMood(this)">✨<span>great</span></button></div>
+      <textarea id="note-full" rows="2" style="margin-top:10px" placeholder="One honest sentence…"></textarea></div></div>
 
-      <button class="sbtn2 low-save-btn" id="savebtn" onclick="saveEntry()">Done. That's enough.</button>
-    </div>
+    <div class="sec"><div class="sl">🅿️ Not now (parking lot)</div><div class="card">
+      <div class="sub">Thinking "maybe I should also learn X"? Park it. It's not part of the current system.</div>
+      <div class="air"><input type="text" id="pk-inp" placeholder="e.g. learn Rust…" onkeydown="if(event.key==='Enter')addPk()"><button class="abtn" onclick="addPk()">+</button></div>
+      <div class="tags" id="pk-tags"></div></div></div>
 
-    <!-- FULL ENTRY MODE -->
-    <div id="full-entry-form">
+    <details class="opt"><summary>Optional extras (sleep, steps, food log, screen…)</summary>
 
       <div class="sec">
         <div class="sl">Sleep</div>
@@ -352,19 +370,6 @@ function out(obj){
           <div class="tr">
             <div class="tb"><label>Slept at</label><input type="time" id="sleep-time-full" value="23:00"></div>
             <div class="tb"><label>Woke up</label><input type="time" id="wake-time-full" value="07:00"></div>
-          </div>
-        </div>
-      </div>
-
-      <div class="sec">
-        <div class="sl">Wake-up feeling</div>
-        <div class="card">
-          <div class="mr">
-            <button class="mb" data-v="1" onclick="selMood(this)">😞<span>rough</span></button>
-            <button class="mb" data-v="2" onclick="selMood(this)">😐<span>meh</span></button>
-            <button class="mb" data-v="3" onclick="selMood(this)">🙂<span>okay</span></button>
-            <button class="mb" data-v="4" onclick="selMood(this)">😊<span>good</span></button>
-            <button class="mb" data-v="5" onclick="selMood(this)">✨<span>great</span></button>
           </div>
         </div>
       </div>
@@ -474,16 +479,22 @@ function out(obj){
         </div>
       </div>
 
-      <div class="sec">
-        <div class="sl">One line about today</div>
-        <div class="card">
-          <textarea id="note-full" placeholder="One honest sentence…" rows="2"></textarea>
-        </div>
+    </details>
+    <button class="sbtn2" id="savebtn-full" onclick="saveEntry()">Save & sync to Sheet</button>
+  </div>
+
+  <!-- WEEK -->
+  <div class="page" id="page-week">
+    <div class="sec"><div class="sl">This week so far</div><div class="card" id="wk-prog"></div></div>
+    <div class="sec"><div class="sl">Weekly planning · 30 min, once</div>
+      <div class="card" style="display:flex;flex-direction:column;gap:12px">
+        <div><label class="field-label">💼 The one career outcome this week</label><input type="text" id="w-outcome"></div>
+        <div><label class="field-label">🏃‍♀️ Gym/movement targets (3–4)</label><input type="number" id="w-move" min="0" max="7" value="3"></div>
+        <div><label class="field-label">🌱 One enjoyable thing</label><input type="text" id="w-enjoy"></div>
+        <div><label class="field-label">✅ What genuinely needs to get done</label><textarea id="w-must" rows="3"></textarea></div>
       </div>
-
-      <button class="sbtn2" id="savebtn-full" onclick="saveEntry()">Save & sync to Sheet</button>
-    </div>
-
+      <button class="sbtn2" onclick="saveWeek()">Save week plan</button></div>
+    <div class="sec"><div class="sl">Parked this week · decide during planning</div><div id="wk-parked"></div></div>
   </div>
 
   <!-- HISTORY -->
@@ -547,18 +558,10 @@ const URL_KEY   = 'jnl_sheet_url';
 let entries = [];
 let scriptUrl = localStorage.getItem(URL_KEY) || '';
 let workH = 0, acts = [], mood = 0, steps = 0;
-let currentMode = 'full'; // 'full' | 'low'
 
-function setMode(mode) {
-  currentMode = mode;
-  $('mt-full').classList.toggle('active', mode==='full');
-  $('mt-low').classList.toggle('active', mode==='low');
-  $('full-entry-form').style.display = mode==='full' ? 'block' : 'none';
-  $('low-energy-form').style.display  = mode==='low'  ? 'block' : 'none';
-  // reset mood selection so it applies correctly to whichever form is shown
-  document.querySelectorAll('.mb').forEach(b=>b.classList.remove('sel'));
-  mood = 0;
-}
+let cmin=0, pk=[], weeks=JSON.parse(localStorage.getItem('jnl_weeks')||'{}');
+const TRACK_KEY='jnl_track';
+const DEF_TRACK='Data Engineering → Analytics Engineering → AI/Data Engineering';
 
 function toast(msg, isErr=false, dur=2600) {
   const el = $('toast');
@@ -573,7 +576,11 @@ function setSync(state, label) {
   $('slbl').textContent = label;
 }
 
-function todayKey() { return new Date().toISOString().split('T')[0]; }
+function localKey(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
+function todayKey() { return localKey(new Date()); }
+function weekKey(){const d=new Date();d.setDate(d.getDate()-((d.getDay()+6)%7));return localKey(d);}
+const esc=t=>String(t==null?'':t).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const cDone=e=>e.career_min>=90, bDone=e=>!!(e.body_move&&e.body_food), lDone=e=>!!e.life_thing;
 
 function fmtDate(d) {
   return new Date(d + 'T12:00:00').toLocaleDateString('en-GB',
@@ -598,7 +605,8 @@ const now = new Date();
 $('tdt').textContent = now.toLocaleDateString('en-GB',
   {weekday:'long',day:'numeric',month:'long'});
 
-entries = JSON.parse(localStorage.getItem(CACHE_KEY)||'[]');
+entries = JSON.parse(localStorage.getItem(CACHE_KEY)||'[]').map(normalise);
+setTimeout(()=>{fillForm();fillWeek();},0);
 
 if (scriptUrl) {
   setSync('busy','syncing…');
@@ -631,6 +639,8 @@ async function loadFromSheet(manual=false) {
       entries = data.entries.map(normalise).filter(e=>e.date);
       entries.sort((a,b)=>b.date.localeCompare(a.date));
       localStorage.setItem(CACHE_KEY, JSON.stringify(entries));
+      if (data.weeks) { weeks = {}; data.weeks.forEach(w=>{const k=String(w.week||'').split('T')[0]; if(k) weeks[k]=w;}); localStorage.setItem('jnl_weeks', JSON.stringify(weeks)); }
+      fillForm(); fillWeek();
       setSync('ok', 'synced');
       if (manual) toast('Pulled ' + entries.length + ' entries ✓');
     }
@@ -657,117 +667,124 @@ function normalise(e) {
     content_types: e.content_types||'',
     screen_hours: parseFloat(e.screen_hours)||0,
     activities: e.activities||'', note: e.note||'',
+    career_min: parseInt(e.career_min)||0, career_topic: e.career_topic||'',
+    no_feed_before: e.no_feed_before||'', body_move: e.body_move||'', body_food: e.body_food||'',
+    life_thing: e.life_thing||'', parked: e.parked||'',
     saved_at: e.saved_at||''
   };
 }
 
 // ── form ──────────────────────────────────────
 function selMood(btn) {
+  const was = btn.classList.contains('sel');
   document.querySelectorAll('.mb').forEach(b=>b.classList.remove('sel'));
-  btn.classList.add('sel');
-  mood = parseInt(btn.dataset.v);
+  if (!was) btn.classList.add('sel');
+  mood = was ? 0 : parseInt(btn.dataset.v);
 }
-
 function tog(chip) { chip.classList.toggle('sel'); }
-
-function stepW(d) {
-  workH = Math.max(0, Math.min(16, +(workH+d).toFixed(1)));
-  $('whours').value = workH;
-  $('wdisp').textContent = workH + 'h';
-}
-
-
-
-
-function addAct() {
-  const inp = $('act-inp'), v = inp.value.trim();
-  if (!v) return;
-  acts.push(v); renderTags(); inp.value='';
-}
-
+function selOne(chip) { const on=chip.classList.contains('sel'); chip.parentElement.querySelectorAll('[data-v]').forEach(c=>c.classList.remove('sel')); if(!on) chip.classList.add('sel'); }
+const setChip=(el,on)=>el.classList.toggle('sel',!!on);
+function stepW(d) { workH = Math.max(0, Math.min(16, +(workH+d).toFixed(1))); $('whours').value = workH; $('wdisp').textContent = workH + 'h'; }
+function renderC(){ $('cmin').value=cmin+' min'+(cmin>=90?' ✓':''); $('cbar').style.width=Math.min(100,cmin/90*100)+'%'; }
+function stepC(d){ cmin=Math.max(0,Math.min(300,cmin+d)); renderC(); }
+function getTrack(){ return localStorage.getItem(TRACK_KEY)||DEF_TRACK; }
+function editTrack(){ const v=prompt('Your ONE current track (one curriculum at a time):', getTrack()); if(v&&v.trim()){ localStorage.setItem(TRACK_KEY,v.trim()); $('trk').textContent='Current track: '+v.trim()+' (tap to change)'; } }
+function addAct() { const inp=$('act-inp'), v=inp.value.trim(); if(!v) return; acts.push(v); renderTags(); inp.value=''; }
 function removeAct(i) { acts.splice(i,1); renderTags(); }
+function renderTags() { $('act-tags').innerHTML = acts.map((a,i)=>`<span class="tag">${esc(a)}<button class="tx" onclick="removeAct(${i})">×</button></span>`).join(''); }
+function addPk() { const inp=$('pk-inp'), v=inp.value.trim(); if(!v) return; pk.push(v); renderPk(); inp.value=''; toast('Parked. Not now. ✓'); }
+function removePk(i) { pk.splice(i,1); renderPk(); }
+function renderPk() { $('pk-tags').innerHTML = pk.map((a,i)=>`<span class="tag">${esc(a)}<button class="tx" onclick="removePk(${i})">×</button></span>`).join(''); }
+const selVals=id=>[...document.querySelectorAll('#'+id+' .chip.sel')].map(c=>c.dataset.v);
 
-function renderTags() {
-  $('act-tags').innerHTML = acts.map((a,i)=>
-    `<span class="tag">${a}<button class="tx" onclick="removeAct(${i})">×</button></span>`
-  ).join('');
+function fillForm() {
+  const e = entries.find(x=>x.date===todayKey()) || {};
+  cmin=e.career_min||0; renderC();
+  $('trk').textContent='Current track: '+getTrack()+' (tap to change)';
+  $('ctopic').value=e.career_topic||'';
+  setChip($('nofeed'),e.no_feed_before);
+  document.querySelectorAll('#move-row [data-v]').forEach(c=>setChip(c,e.body_move===c.dataset.v));
+  setChip($('food-ok'),e.body_food);
+  const lt=(e.life_thing||'').split(', ').filter(Boolean), known=[...document.querySelectorAll('#life-row .chip')].map(c=>c.dataset.v);
+  document.querySelectorAll('#life-row .chip').forEach(c=>setChip(c,lt.includes(c.dataset.v)));
+  $('life-other').value=lt.filter(x=>!known.includes(x)).join(', ');
+  mood=e.mood||0; document.querySelectorAll('.mb').forEach(b=>b.classList.toggle('sel',+b.dataset.v===mood));
+  $('note-full').value=e.note||'';
+  pk=(e.parked||'').split(', ').filter(Boolean); renderPk();
+  [['habits-row',e.habits],['social-row',e.social],['content-row',e.content_types]].forEach(([id,v])=>{const l=(v||'').split(', '); document.querySelectorAll('#'+id+' .chip').forEach(c=>setChip(c,l.includes(c.dataset.v)));});
+  $('sleep-time-full').value=e.sleep_time||''; $('wake-time-full').value=e.wake_time||'';
+  workH=e.work_hours||0; $('whours').value=workH; $('wdisp').textContent=workH+'h';
+  $('steps-input').value=e.steps||'';
+  $('food-breakfast').value=e.food_breakfast||''; $('food-lunch').value=e.food_lunch||''; $('food-dinner').value=e.food_dinner||''; $('food-snacks').value=e.food_snacks||'';
+  $('screen').value=e.screen_hours||0; $('scrv').textContent=e.screen_hours||0;
+  acts=(e.activities||'').split(', ').filter(Boolean); renderTags();
+  $('wk-banner').style.display = weeks[weekKey()] ? 'none' : 'block';
 }
 
 async function saveEntry() {
   if (!scriptUrl) { openOverlay(); return; }
-
-  const isLow = currentMode === 'low';
-  const activeSaveBtn = isLow ? $('savebtn') : $('savebtn-full');
-  activeSaveBtn.disabled = true;
-  activeSaveBtn.textContent = 'Saving…';
-  setSync('busy','saving…');
-
-  const sleepEl  = isLow ? $('sleep-time')      : $('sleep-time-full');
-  const wakeEl   = isLow ? $('wake-time')        : $('wake-time-full');
-  const noteVal  = isLow ? $('note').value.trim(): $('note-full').value.trim();
-
-  const date = todayKey();
+  const btn=$('savebtn-full'); btn.disabled=true; btn.textContent='Saving…'; setSync('busy','saving…');
+  const life=[...selVals('life-row'), ...$('life-other').value.split(',').map(x=>x.trim()).filter(Boolean)];
+  const date=todayKey();
   const row = {
-    date,
-    entry_mode: isLow ? 'low_energy' : 'full',
-    sleep_time: sleepEl.value,
-    wake_time:  wakeEl.value,
-    sleep_hours: calcSleep(sleepEl.value, wakeEl.value),
-    mood,
-    habits:        isLow ? '' : chips('habits-row'),
-    social:        isLow ? '' : chips('social-row'),
-    work_hours:    isLow ? 0  : workH,
-    steps:         isLow ? 0  : (parseInt($('steps-input').value)||0),
-    food_breakfast:isLow ? '' : $('food-breakfast').value.trim(),
-    food_lunch:    isLow ? '' : $('food-lunch').value.trim(),
-    food_dinner:   isLow ? '' : $('food-dinner').value.trim(),
-    food_snacks:   isLow ? '' : $('food-snacks').value.trim(),
-    content_types: isLow ? '' : chips('content-row'),
-    screen_hours:  isLow ? 0  : parseFloat($('screen').value),
-    activities:    isLow ? '' : acts.join(', '),
-    note: noteVal,
-    saved_at: new Date().toISOString()
+    date, entry_mode:'daily3',
+    sleep_time:$('sleep-time-full').value, wake_time:$('wake-time-full').value,
+    sleep_hours:calcSleep($('sleep-time-full').value,$('wake-time-full').value), mood,
+    habits:chips('habits-row'), social:chips('social-row'), work_hours:workH,
+    steps:parseInt($('steps-input').value)||0,
+    food_breakfast:$('food-breakfast').value.trim(), food_lunch:$('food-lunch').value.trim(),
+    food_dinner:$('food-dinner').value.trim(), food_snacks:$('food-snacks').value.trim(),
+    content_types:chips('content-row'), screen_hours:parseFloat($('screen').value)||0,
+    activities:acts.join(', '), note:$('note-full').value.trim(),
+    career_min:cmin, career_topic:$('ctopic').value.trim(),
+    no_feed_before:$('nofeed').classList.contains('sel')?'yes':'',
+    body_move:selVals('move-row').filter(v=>v).join(''), body_food:$('food-ok').classList.contains('sel')?'yes':'',
+    life_thing:life.join(', '), parked:pk.join(', '),
+    saved_at:new Date().toISOString()
   };
-
   const idx = entries.findIndex(e=>e.date===date);
   if (idx>=0) entries[idx]=row; else entries.unshift(row);
   localStorage.setItem(CACHE_KEY, JSON.stringify(entries));
-
+  const n=[cDone(row),bDone(row),lDone(row)].filter(Boolean).length;
   try {
-    await sheetPost({ action: idx>=0 ? 'update' : 'append', date, row });
+    await sheetPost({action:'update', date, row});
     setSync('ok','synced');
-    toast(isLow ? 'Logged. Good job showing up. ✓' : 'Saved to Sheet ✓');
-    resetForm();
-  } catch(err) {
-    setSync('err','save failed');
-    toast('Saved locally — Sheet sync failed', true, 4000);
-  }
-
-  activeSaveBtn.disabled = false;
-  activeSaveBtn.textContent = isLow ? 'Done. That\'s enough.' : 'Save & sync to Sheet';
+    toast(n===3?'3 of 3. A good day. ✓':n+' of 3 saved. Reasonably good is enough ✓');
+  } catch(err) { setSync('err','save failed'); toast('Saved locally. Sheet sync failed', true, 4000); }
+  btn.disabled=false; btn.textContent='Save & sync to Sheet';
 }
 
-function resetForm() {
-  document.querySelectorAll('.mb,.chip').forEach(b=>b.classList.remove('sel'));
-  mood=0; acts=[]; workH=0; steps=0;
-  $('whours').value=0; $('wdisp').textContent='0h';
-  $('steps-input').value='';
-  $('food-breakfast').value=''; $('food-lunch').value='';
-  $('food-dinner').value=''; $('food-snacks').value='';
-  $('screen').value=0; $('scrv').textContent=0;
-  $('act-tags').innerHTML='';
-  $('note').value=''; $('note-full').value='';
-  // reset sleep fields both modes
-  $('sleep-time').value='23:00'; $('wake-time').value='07:00';
-  $('sleep-time-full').value='23:00'; $('wake-time-full').value='07:00';
+// ── week ──
+function weekEntries(){ const k=weekKey(); return entries.filter(e=>e.date>=k); }
+function fillWeek() {
+  const w=weeks[weekKey()]||{};
+  $('w-outcome').value=w.outcome||''; $('w-move').value=w.move_target||3; $('w-enjoy').value=w.enjoy||''; $('w-must').value=w.must_do||'';
 }
-
+async function saveWeek() {
+  const week=weekKey(), row={week, outcome:$('w-outcome').value.trim(), move_target:parseInt($('w-move').value)||3, enjoy:$('w-enjoy').value.trim(), must_do:$('w-must').value.trim(), saved_at:new Date().toISOString()};
+  weeks[week]=row; localStorage.setItem('jnl_weeks',JSON.stringify(weeks)); $('wk-banner').style.display='none';
+  try { if(!scriptUrl) throw 0; await sheetPost({action:'weekly_save', week, row}); toast('Week planned ✓'); }
+  catch(e){ toast('Saved on this device (update the Apps Script to sync weeks)', false, 4000); }
+  renderWeek();
+}
+function renderWeek() {
+  const we=weekEntries(), w=weeks[weekKey()]||{}, tgt=w.move_target||3;
+  const c=we.filter(cDone).length, b=we.filter(e=>e.body_move).length, l=we.filter(lDone).length, m=we.reduce((a,e)=>a+e.career_min,0);
+  $('wk-prog').innerHTML=`${w.outcome?`<div class="ln" style="margin:0 0 10px">Outcome: ${esc(w.outcome)}</div>`:''}
+    <div class="br"><div class="bbl">career</div><div class="btr"><div class="bf" style="width:${Math.min(100,c/5*100)}%"></div></div><div class="bv">${c}d</div></div>
+    <div class="br"><div class="bbl">movement</div><div class="btr"><div class="bf" style="width:${Math.min(100,b/tgt*100)}%"></div></div><div class="bv">${b}/${tgt}</div></div>
+    <div class="br"><div class="bbl">life</div><div class="btr"><div class="bf" style="width:${Math.min(100,l/7*100)}%"></div></div><div class="bv">${l}d</div></div>
+    <div class="ss">${m} focused career minutes this week</div>`;
+  const parked=we.flatMap(e=>(e.parked||'').split(', ').filter(Boolean).map(p=>({d:e.date,p})));
+  $('wk-parked').innerHTML=parked.length?parked.map(x=>`<div class="li" style="padding:10px 14px"><span class="lc">${x.d.slice(5)}</span> ${esc(x.p)}</div>`).join(''):'<div class="ss" style="padding:6px 0">Nothing parked. Nice and boring.</div>';
+}
 // ── nav ───────────────────────────────────────
 function go(page, btn) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('active'));
   $('page-'+page).classList.add('active');
   btn.classList.add('active');
+  if (page==='week') { fillWeek(); renderWeek(); }
   if (page==='history') renderHistory();
   if (page==='stats') renderStats();
   if (page==='export') renderExport();
@@ -798,6 +815,9 @@ function renderHistory() {
       <div class="lcs">
         ${e.habits?e.habits.split(', ').map(h=>`<span class="lc">${h}</span>`).join(''):''}
         ${e.social?e.social.split(', ').map(s=>`<span class="lc">👥 ${s}</span>`).join(''):''}
+        ${e.career_min>0?`<span class="lc">💼 ${e.career_min}m${e.career_topic?' · '+esc(e.career_topic):''}</span>`:''}
+        ${e.body_move?`<span class="lc">🏃‍♀️ ${e.body_move}${e.body_food?' + food':''}</span>`:''}
+        ${e.life_thing?`<span class="lc">🌱 ${esc(e.life_thing)}</span>`:''}
         ${e.work_hours>0?`<span class="lc">💼 ${e.work_hours}h</span>`:''}
         ${e.steps>0?`<span class="lc">👟 ${e.steps.toLocaleString()} steps</span>`:''}
         ${e.food_breakfast?`<span class="lc">☀️ ${e.food_breakfast}</span>`:''}
@@ -807,7 +827,7 @@ function renderHistory() {
         ${e.content_types?e.content_types.split(', ').map(c=>`<span class="lc">${c}</span>`).join(''):''}
         ${e.screen_hours>0?`<span class="lc">📱 ${e.screen_hours}h screen</span>`:''}
       </div>
-      ${e.note?`<div class="ln">"${e.note}"</div>`:''}
+      ${e.note?`<div class="ln">"${esc(e.note)}"</div>`:''}
     </div>
   `).join('');
 }
@@ -842,7 +862,10 @@ function renderStats() {
   const avgInt = (arr,k) => arr.length ? Math.round(arr.reduce((a,e)=>a+(+e[k]||0),0)/arr.length).toLocaleString() : '—';
   const shwr = entries.filter(e=>e.habits&&e.habits.includes('shower')).length;
 
+  const full=entries.filter(e=>cDone(e)&&bDone(e)&&lDone(e)).length;
   $('stat-grid').innerHTML = `
+    <div class="sc"><div class="sl2">3 of 3 days</div><div class="sv">${full}</div><div class="ss">of ${n} logged</div></div>
+    <div class="sc"><div class="sl2">Career blocks</div><div class="sv">${entries.filter(cDone).length}</div><div class="ss">90 min days</div></div>
     <div class="sc"><div class="sl2">Avg Sleep</div><div class="sv">${avg(ws,'sleep_hours')}<span style="font-size:14px"> h</span></div><div class="ss">${ws.length} nights</div></div>
     <div class="sc"><div class="sl2">Avg Mood</div><div class="sv">${avg(wm,'mood')}<span style="font-size:14px"> /5</span></div><div class="ss">${wm.length} mornings</div></div>
     <div class="sc"><div class="sl2">Work Avg</div><div class="sv">${avg(ww,'work_hours')}<span style="font-size:14px"> h</span></div><div class="ss">per day</div></div>
@@ -856,7 +879,7 @@ function renderStats() {
   const days = ['S','M','T','W','T','F','S'], today = new Date();
   $('moodweek').innerHTML = Array.from({length:7},(_,i)=>{
     const d = new Date(today); d.setDate(d.getDate()-(6-i));
-    const key = d.toISOString().split('T')[0];
+    const key = localKey(d);
     const e = entries.find(e=>e.date===key);
     const isToday = i===6;
     return `<div class="dd">
